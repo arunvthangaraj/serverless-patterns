@@ -8,8 +8,13 @@ AWS.config.update({ region: process.env.region });
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
+const CLUSTER_ARN = process.env.clusterARN;
+const CLUSTER_NAME = process.env.clusterName;
+
 app.get("/", (req, res) => {
-  res.status(200).send(`Hello Serverless Fargate MSK`);
+  res
+    .status(200)
+    .send(`Hello Serverless Fargate MSK ${CLUSTER_NAME} - ${CLUSTER_ARN}`);
 });
 
 app.listen(port, () => {
