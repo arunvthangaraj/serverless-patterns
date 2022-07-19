@@ -1,83 +1,48 @@
-import { Duration, RemovalPolicy, Stack, StackProps } from 'aws-cdk-lib';
+import { PhysicalName, Stack, StackProps } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as events from 'aws-cdk-lib/aws-events';
-import * as lambda from "aws-cdk-lib/aws-lambda";
-import * as s3 from "aws-cdk-lib/aws-s3";
 import * as targets from "aws-cdk-lib/aws-events-targets";
-import * as firehose from "aws-cdk-lib/aws-kinesisfirehose";
-import * as iam from "aws-cdk-lib/aws-iam";
+import { LambdaMaker } from './lambdaMaker';
+import { S3BucketMaker } from './s3BucketMaker';
+import { KinesisStreamMaker } from './kinesisStreamMaker';
 
-export class CdkStack extends Stack {
-  constructor(scope: Construct, id: string, props?: StackProps) {
+export interface LambdaEventBridgeKinsesisS3StackStackProps extends StackProps {
+  eventPatternSource: string[]
+}
+
+
+export class LambdaEventBridgeKinsesisS3Stack extends Stack {
+
+
+  constructor(scope: Construct, id: string, props?: LambdaEventBridgeKinsesisS3StackStackProps) {
     super(scope, id, props);
 
-    const bucket = new s3.Bucket(this, 's3-bucket-for-kinesis', {
-      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
-      removalPolicy: RemovalPolicy.DESTROY
-    });
+    // collect the resources we need for this pattern
 
-    const bus = new events.EventBus(this, 'bus', {
-      eventBusName: 'DemoEventBus',
-    });
+    const bucketMakerResult = S3BucketMaker.makeBucket(this);
+    const lamdbaMakerResult = LambdaMaker.makeLambda(this, `${this.constructor.name}-${id}-eventGeneratorLambda`)
+    const deliveryStreamMakerResult = KinesisStreamMaker.makeDeliveryStream(this, bucketMakerResult);
 
-    const lambdaFunction = new lambda.Function(this, 'event-generator', {
-      runtime: lambda.Runtime.NODEJS_14_X,
-      handler: 'lambda.handler',
-      code: lambda.Code.fromAsset('src'),
-      environment: {
-        eventBusName: bus.eventBusName
-      },
-      timeout: Duration.minutes(5)
-    });
 
-    bus.grantPutEventsTo(lambdaFunction);
+    // setup the event bus
 
-    const rule = new events.Rule(this, 'rule', {
+    const bus = new events.EventBus(this, PhysicalName.GENERATE_IF_NEEDED, {});
+    const eventRule = new events.Rule(this, PhysicalName.GENERATE_IF_NEEDED, {
       eventPattern: {
-        source: ["demo.event"],
+        source: props?.eventPatternSource,
       },
       eventBus: bus
     });
+    bus.grantPutEventsTo(lamdbaMakerResult.function);
 
-    const firehosePolicy = new iam.PolicyDocument({
-      statements: [
-        new iam.PolicyStatement({
-          resources: [`${bucket.bucketArn}`, `${bucket.bucketArn}/*`],
-          actions: [
-            "s3:AbortMultipartUpload",
-            "s3:GetBucketLocation",
-            "s3:GetObject",
-            "s3:ListBucket",
-            "s3:ListBucketMultipartUploads",
-            "s3:PutObject",
-          ],
-        }),
-      ],
-    });
+    // point lambda to our event bus
 
-    const firehoseRole = new iam.Role(this, 'firehose-iam-role', {
-      assumedBy: new iam.ServicePrincipal('firehose.amazonaws.com'),
-      description: 'An IAM role for firehose',
-      inlinePolicies: {
-        FirehosePolicy: firehosePolicy,
-      }
-    });
+    lamdbaMakerResult.function.addEnvironment("eventBusName", bus.eventBusName);
 
-    const firehoseStream = new firehose.CfnDeliveryStream(this, 'firehose-delivery-stream', {
-      deliveryStreamName: "s3-delivery-stream",
-      deliveryStreamType: "DirectPut"
-    });
 
-    firehoseStream.s3DestinationConfiguration = {
-      roleArn: firehoseRole.roleArn,
-      bucketArn: bucket.bucketArn,
-      compressionFormat: "GZIP",
-      bufferingHints: {
-        intervalInSeconds: 60
-      }
-    }
+    // point event bus to kinesis delivery stream
 
-    rule.addTarget(new targets.KinesisFirehoseStream(firehoseStream, {}));
+    eventRule.addTarget(new targets.KinesisFirehoseStream(deliveryStreamMakerResult.deliveryStream, {}));
     
   }
 }
