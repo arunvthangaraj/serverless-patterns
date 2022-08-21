@@ -1,10 +1,11 @@
-import { CfnOutput, Construct, Stack, StackProps, RemovalPolicy } from '@aws-cdk/core';
-import { PolicyStatement, Effect } from '@aws-cdk/aws-iam';
-import { Vpc, SecurityGroup, Port } from '@aws-cdk/aws-ec2';
-import { Cluster, ContainerImage } from '@aws-cdk/aws-ecs';
-import { ApplicationLoadBalancedFargateService } from '@aws-cdk/aws-ecs-patterns';
+import {ArnFormat, CfnOutput, Construct, RemovalPolicy, Stack, StackProps} from '@aws-cdk/core';
+import {Effect, PolicyStatement} from '@aws-cdk/aws-iam';
+import {Port, SecurityGroup, Vpc} from '@aws-cdk/aws-ec2';
+import {Cluster, ContainerImage} from '@aws-cdk/aws-ecs';
+import {ApplicationLoadBalancedFargateService} from '@aws-cdk/aws-ecs-patterns';
 import * as msk from "@aws-cdk/aws-msk"
-import { Key } from '@aws-cdk/aws-kms';
+import {Key} from '@aws-cdk/aws-kms';
+import {Secret} from "@aws-cdk/aws-secretsmanager";
 import path = require('path');
 
 export class CdkStack extends Stack {
@@ -22,6 +23,7 @@ export class CdkStack extends Stack {
       enabled: true,
       removalPolicy: RemovalPolicy.DESTROY
     });
+    const msk_key = new Key(this, 'kafkaKey')
 
     const ecsTaskSG = new SecurityGroup(this, 'esc-task-sg', {
         vpc,
@@ -30,7 +32,7 @@ export class CdkStack extends Stack {
     });
 
     const mskCluster = new msk.Cluster(this, "mskCluster", {
-        clusterName: 'myclusterviasimplecdk',
+        clusterName: this.getClusterName(),
         kafkaVersion: msk.KafkaVersion.V2_8_1,
         vpc: vpc,
         ebsStorageInfo: {
@@ -40,12 +42,17 @@ export class CdkStack extends Stack {
         removalPolicy: RemovalPolicy.DESTROY,
         clientAuthentication: {
             saslProps: {
-                iam: true
+                scram: true
             }
         }
     });
 
+
     mskCluster.connections.allowFrom(ecsTaskSG, Port.allTraffic())
+    mskCluster.addUser(this.getDefaultUserNameForMskUser());
+
+    // const mskUserSecret = Secret.fromSecretNameV2(this, "SecretFromPartialArn", `AmazonMSK_${this.getClusterName()}_${this.getDefaultUserNameForMskUser()}`);
+    const mskUserSecret = Secret.fromSecretNameV2(this, "SecretFromPartialArn","AmazonMSK_myclusterviasimplecdk_AmazonMSK_user");
 
     const ecsCluster = new Cluster(this, 'ecsCluster', {
       vpc: vpc,
@@ -60,7 +67,9 @@ export class CdkStack extends Stack {
         environment: {
           region: process.env.CDK_DEFAULT_REGION!,
           clusterARN: mskCluster.clusterArn,
-          clusterName: mskCluster.clusterName
+          clusterName: mskCluster.clusterName,
+            secret: mskUserSecret.secretValueFromJson("password").toString(),
+            username: mskUserSecret.secretValueFromJson("username").toString(),
         },
       },
       assignPublicIp: false,
@@ -78,6 +87,14 @@ export class CdkStack extends Stack {
         })
       )
 
-    new CfnOutput(this, 'MskClusterARN', { value: mskCluster.clusterArn });
+      new CfnOutput(this, 'MskClusterARN', { value: mskCluster.clusterArn});
   }
+
+    private getDefaultUserNameForMskUser() {
+        return "AmazonMSK_user";
+    }
+
+    private getClusterName() {
+        return "myclusterviasimplecdk";
+    }
 }
