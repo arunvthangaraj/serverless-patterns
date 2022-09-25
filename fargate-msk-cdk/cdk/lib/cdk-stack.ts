@@ -1,11 +1,11 @@
-import {ArnFormat, CfnOutput, Construct, RemovalPolicy, Stack, StackProps} from '@aws-cdk/core';
-import {Effect, PolicyStatement} from '@aws-cdk/aws-iam';
-import {Port, SecurityGroup, Vpc} from '@aws-cdk/aws-ec2';
-import {Cluster, ContainerImage} from '@aws-cdk/aws-ecs';
-import {ApplicationLoadBalancedFargateService} from '@aws-cdk/aws-ecs-patterns';
+import { CfnOutput, Construct, RemovalPolicy, Stack, StackProps } from '@aws-cdk/core';
+import { Effect, PolicyStatement } from '@aws-cdk/aws-iam';
+import { Port, SecurityGroup, Vpc } from '@aws-cdk/aws-ec2';
+import { Cluster, ContainerImage } from '@aws-cdk/aws-ecs';
+import { ApplicationLoadBalancedFargateService } from '@aws-cdk/aws-ecs-patterns';
 import * as msk from "@aws-cdk/aws-msk"
-import {Key} from '@aws-cdk/aws-kms';
-import {Secret} from "@aws-cdk/aws-secretsmanager";
+import { Key } from '@aws-cdk/aws-kms';
+import { Secret } from "@aws-cdk/aws-secretsmanager";
 import path = require('path');
 
 export class CdkStack extends Stack {
